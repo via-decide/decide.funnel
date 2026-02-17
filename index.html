@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Decision Funnel · Swipe Intake</title>
+
+  <style>
+    :root{
+      --bg:#0a0a0a;
+      --text:#f0f0f0;
+      --accent:#ff671f;
+      --go:#00e676;
+      --mono:'Courier New',monospace;
+      --card:#121212;
+      --cardBorder:#1f1f1f;
+    }
+    html,body{
+      margin:0; height:100%;
+      background:var(--bg); color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;
+      overflow:hidden; touch-action:none;
+    }
+    #root{height:100%;}
+    .app{
+      position:relative;
+      width:100vw; height:100vh;
+      display:flex; flex-direction:column;
+    }
+    .slide{
+      position:absolute; inset:0;
+      transform:translateY(100%);
+      transition:.45s cubic-bezier(.2,.8,.2,1);
+      display:flex; flex-direction:column;
+    }
+    .slide.active{transform:translateY(0); z-index:10;}
+    .slide.prev{transform:translateY(-100%);}
+
+    .header{
+      padding:20px;
+      border-left:3px solid var(--accent);
+    }
+    .header span{
+      font-family:var(--mono);
+      font-size:.7rem;
+      color:var(--accent);
+    }
+
+    .center{
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      padding:30px;
+    }
+
+    h1{
+      margin:0 0 20px 0;
+      color:var(--accent);
+      font-size:1.6rem;
+    }
+
+    .option{
+      font-size:1.4rem;
+      font-weight:800;
+      transition:transform .25s ease,opacity .25s ease;
+      will-change:transform,opacity;
+    }
+    .option.enter-right{transform:translateX(30px); opacity:0;}
+    .option.enter-left{transform:translateX(-30px); opacity:0;}
+    .option.show{transform:translateX(0); opacity:1;}
+
+    .hint{
+      margin-top:40px;
+      font-family:var(--mono);
+      font-size:.7rem;
+      color:#666;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    #depth{
+      position:fixed;
+      right:0; top:0;
+      width:4px;
+      height:0;
+      background:#333;
+      z-index:999;
+    }
+
+    #toast{
+      position:fixed;
+      bottom:80px;
+      left:50%;
+      transform:translateX(-50%);
+      background:#222;
+      color:var(--go);
+      padding:8px 16px;
+      border-radius:20px;
+      font-family:var(--mono);
+      opacity:0;
+      transition:.25s;
+      z-index:999;
+    }
+    #toast.show{opacity:1;}
+
+    .btn{
+      background:#25D366;
+      color:#000;
+      padding:18px;
+      border-radius:10px;
+      font-weight:900;
+      text-align:center;
+      user-select:none;
+      cursor:pointer;
+      margin-top:16px;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--cardBorder);
+      border-radius:12px;
+      padding:14px;
+      margin:10px 0 8px 0;
+      font-size:.9rem;
+      line-height:1.35;
+    }
+    .row{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      margin:8px 0;
+    }
+    .label{color:#888; font-size:.75rem;}
+    .value{color:var(--text); font-size:.85rem; text-align:right;}
+    .mono{font-family:var(--mono);}
+    .small{color:#666; font-size:.75rem; margin-top:8px;}
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <div id="depth"></div>
+  <div id="toast"></div>
+
+  <!-- React (CDN) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <script>
+    // ===============================
+    // CONFIG
+    // ===============================
+    const EMAIL_TO = "dharam@viadecide.com";
+
+    // EDIT YOUR FLOW HERE
+    const FLOW = [
+      {
+        key: "input_type",
+        title: "What Are You Submitting?",
+        options: [
+          "Rough Idea",
+          "Structured Topic",
+          "Existing PDF",
+          "Research Compilation",
+          "Strategy Draft",
+          "Other"
+        ]
+      },
+      {
+        key: "objective",
+        title: "Primary Objective",
+        options: [
+          "Clarify strategy",
+          "Prepare stakeholder brief",
+          "Make faster decision",
+          "Structure messy thinking",
+          "Turn research into artifact",
+          "Refine execution roadmap"
+        ]
+      },
+      {
+        key: "urgency",
+        title: "Urgency Level",
+        options: [
+          "Within 24 hours",
+          "This week",
+          "Within 2 weeks",
+          "Flexible",
+          "Exploratory"
+        ]
+      },
+      {
+        key: "visual_need",
+        title: "Need Visual Upgrade?",
+        options: [
+          "Yes — stakeholder-ready layout",
+          "Yes — include video walkthrough",
+          "No — structure only",
+          "Not sure yet"
+        ]
+      }
+    ];
+
+    const LABELS = {
+      input_type: "Submission Type",
+      objective: "Objective",
+      urgency: "Urgency",
+      visual_need: "Visual Upgrade"
+    };
+
+    // ===============================
+    // HELPERS
+    // ===============================
+    function genBmcId(){
+      const chars="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      let out="BMC-";
+      for(let i=0;i<8;i++) out += chars[Math.floor(Math.random()*chars.length)];
+      return out;
+    }
+
+    function toast(msg){
+      const el=document.getElementById("toast");
+      el.textContent=msg;
+      el.classList.add("show");
+      setTimeout(()=>el.classList.remove("show"),900);
+    }
+
+    function swapOption(el,text,dir){
+      el.className = "option enter-" + dir;
+      requestAnimationFrame(()=>{
+        el.textContent = text;
+        el.className = "option show";
+      });
+    }
+
+    function buildEmail(state, bmcId){
+      const subject = `Decision Funnel — PRO PDF Request — Ref ${bmcId}`;
+      let body = "";
+      body += "PRO PDF REQUEST\\n";
+      body += "Reference ID: " + bmcId + "\\n";
+      body += "--------------------------\\n";
+
+      FLOW.forEach(step=>{
+        const label = LABELS[step.key] || step.key;
+        const val = state[step.key] || "Not selected";
+        body += `${label}: ${val}\\n`;
+      });
+
+      body += "--------------------------\\n";
+      body += "Topic / Links / Notes:\\n\\n";
+      body += "(Add your topic, links, PDF context here)\\n\\n";
+      body += "Delivery Email:\\n\\n";
+      body += "(Add the email where you want the PRO PDF delivered)\\n";
+
+      return { subject, body };
+    }
+
+    // ===============================
+    // APP
+    // ===============================
+    const e = React.createElement;
+
+    function App(){
+      const [idx, setIdx] = React.useState(0);                 // slide index
+      const [optIdx, setOptIdx] = React.useState(FLOW.map(()=>0));
+      const [state, setState] = React.useState({});
+      const [bmcId, setBmcId] = React.useState("");
+      const slidesRef = React.useRef([]);
+      const touchRef = React.useRef({sx:0, sy:0});
+
+      const isFinal = idx === FLOW.length;
+
+      function next(){
+        setIdx(v => Math.min(v+1, FLOW.length));
+      }
+      function prev(){
+        setIdx(v => Math.max(v-1, 0));
+      }
+
+      function browse(dir){
+        if(isFinal) return;
+        const opts = FLOW[idx].options;
+        setOptIdx(arr=>{
+          const copy = arr.slice();
+          const cur = copy[idx] || 0;
+          const nxt = dir === "right"
+            ? (cur + 1) % opts.length
+            : (cur - 1 + opts.length) % opts.length;
+          copy[idx] = nxt;
+          return copy;
+        });
+
+        // animate text on current slide
+        const slideEl = slidesRef.current[idx];
+        if(slideEl){
+          const optEl = slideEl.querySelector(".option");
+          const oi = (dir === "right")
+            ? (optIdx[idx] + 1) % opts.length
+            : (optIdx[idx] - 1 + opts.length) % opts.length;
+          swapOption(optEl, opts[oi], dir);
+        }
+      }
+
+      function select(){
+        if(isFinal) return;
+        const step = FLOW[idx];
+        const oi = optIdx[idx] || 0;
+        const val = step.options[oi];
+        setState(s => ({...s, [step.key]: val}));
+        toast("Selected");
+        next();
+      }
+
+      function skip(){
+        if(isFinal) return;
+        toast("Skipped");
+        next();
+      }
+
+      function sendEmail(){
+        const id = bmcId || genBmcId();
+        if(!bmcId) setBmcId(id);
+
+        const {subject, body} = buildEmail(state, id);
+        const mailto = `mailto:${EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.location.href = mailto;
+      }
+
+      // Touch handling
+      function onTouchStart(ev){
+        const t = ev.touches[0];
+        touchRef.current.sx = t.clientX;
+        touchRef.current.sy = t.clientY;
+      }
+
+      function onTouchMove(ev){
+        const t = ev.touches[0];
+        const dy = t.clientY - touchRef.current.sy;
+        if(dy > 0){
+          ev.preventDefault();
+          document.getElementById("depth").style.height = Math.min(dy/2, 100) + "%";
+        }
+      }
+
+      function onTouchEnd(ev){
+        document.getElementById("depth").style.height = "0%";
+
+        const t = ev.changedTouches[0];
+        const dx = t.clientX - touchRef.current.sx;
+        const dy = t.clientY - touchRef.current.sy;
+
+        // Final slide gestures
+        if(isFinal){
+          if(dy > 60 && Math.abs(dy) > Math.abs(dx)) { sendEmail(); return; }
+          if(dy < -60 && Math.abs(dy) > Math.abs(dx)) { prev(); return; }
+          return;
+        }
+
+        // Up = skip
+        if(dy < -60 && Math.abs(dy) > Math.abs(dx)) { skip(); return; }
+        // Down = select
+        if(dy > 60 && Math.abs(dy) > Math.abs(dx)) { select(); return; }
+        // Right = browse next
+        if(dx > 60) { browse("right"); return; }
+        // Left = browse prev
+        if(dx < -60) { browse("left"); return; }
+      }
+
+      // Mouse fallback (drag-like)
+      function onMouseDown(ev){
+        touchRef.current.sx = ev.clientX;
+        touchRef.current.sy = ev.clientY;
+      }
+      function onMouseUp(ev){
+        const fake = { changedTouches: [{ clientX: ev.clientX, clientY: ev.clientY }] };
+        onTouchEnd(fake);
+      }
+
+      return e("div", {
+          className:"app",
+          onTouchStart, onTouchMove, onTouchEnd,
+          onMouseDown, onMouseUp
+        },
+
+        // Slides
+        ...FLOW.map((step, i) => {
+          const cls = "slide" + (i===idx ? " active" : (i===idx-1 ? " prev" : ""));
+          const oi = optIdx[i] || 0;
+          return e("section", {
+              key: step.key,
+              className: cls,
+              ref: el => slidesRef.current[i] = el
+            },
+            e("div", {className:"header"}, e("span", null, "SWIPE · DECISION FUNNEL")),
+            e("div", {className:"center"},
+              e("h1", null, step.title),
+              e("div", {className:"option show"}, step.options[oi]),
+              e("div", {className:"hint"},
+                e("span", null, "↑ SKIP"),
+                e("span", null, "↓ SELECT"),
+                e("span", null, "← → BROWSE")
+              )
+            )
+          );
+        }),
+
+        // Final slide
+        e("section", { className: "slide" + (isFinal ? " active" : "") },
+          e("div", {className:"header"}, e("span", null, "FINAL")),
+          e("div", {className:"center"},
+            e("h1", null, "Send Request"),
+
+            e("div", {className:"card"},
+              e("div", {className:"row"},
+                e("div", {className:"label"}, "Email"),
+                e("div", {className:"value"}, EMAIL_TO)
+              ),
+              e("div", {className:"row"},
+                e("div", {className:"label"}, "Ref ID"),
+                e("div", {className:"value mono"}, bmcId || "(generated on send)")
+              ),
+              e("div", {className:"small"}, "Swipe down or click to open a prefilled email draft.")
+            ),
+
+            e("div", {className:"btn", onClick: sendEmail}, "OPEN EMAIL DRAFT"),
+
+            e("div", {className:"hint", style:{marginTop:"18px"}},
+              e("span", null, "Tip:"),
+              e("span", null, "Review selections before sending"),
+              e("span", null, "")
+            )
+          )
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+  </script>
+</body>
+</html>
