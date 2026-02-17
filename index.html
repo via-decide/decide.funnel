@@ -133,7 +133,7 @@
       margin:8px 0;
     }
     .label{color:#888; font-size:.75rem;}
-    .value{color:var(--text); font-size:.85rem; text-align:right;}
+    .value{color:var(--text); font-size:.85rem; text-align:right; max-width:72%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
     .mono{font-family:var(--mono);}
     .small{color:#666; font-size:.75rem; margin-top:8px;}
   </style>
@@ -153,6 +153,12 @@
     // CONFIG
     // ===============================
     const EMAIL_TO = "dharam@viadecide.com";
+
+    // Topic injected by GPT via link param:
+    // Example link you share from GPT:
+    // https://your-hosted-url/index.html?topic=YOUR_ENCODED_TOPIC
+    const params = new URLSearchParams(window.location.search);
+    const TOPIC_FROM_GPT = (params.get("topic") || params.get("t") || "").trim();
 
     // EDIT YOUR FLOW HERE
     const FLOW = [
@@ -235,25 +241,37 @@
       });
     }
 
-    function buildEmail(state, bmcId){
-      const subject = `Decision Funnel — PRO PDF Request — Ref ${bmcId}`;
-      let body = "";
-      body += "PRO PDF REQUEST\\n";
-      body += "Reference ID: " + bmcId + "\\n";
-      body += "--------------------------\\n";
+    // ✅ FIXED LAYOUT:
+    // - Uses real newlines (no "\n" showing in email)
+    // - Includes Topic from GPT (from URL)
+    // - Includes only swipe selections + topic + ref id (no extra placeholders)
+    function buildEmail(state, bmcId, topic){
+      const cleanTopic = (topic || "").trim();
+      const subjectTopic = cleanTopic ? ` — ${cleanTopic}` : "";
+      const subject = `Decision Funnel — PRO PDF Request${subjectTopic} — Ref ${bmcId}`;
+
+      const lines = [];
+      lines.push("PRO PDF REQUEST");
+      lines.push(`Reference ID: ${bmcId}`);
+      if (cleanTopic) lines.push(`Topic: ${cleanTopic}`);
+      lines.push("--------------------------------");
+      lines.push("");
 
       FLOW.forEach(step=>{
-        const label = LABELS[step.key] || step.key;
+        const label = LABELS[step.key] || step.key.replace(/_/g," ");
         const val = state[step.key] || "Not selected";
-        body += `${label}: ${val}\\n`;
+        lines.push(`${label}: ${val}`);
       });
 
-      body += "--------------------------\\n";
-      body += "Topic / Links / Notes:\\n\\n";
-      body += "(Add your topic, links, PDF context here)\\n\\n";
-      body += "Delivery Email:\\n\\n";
-      body += "(Add the email where you want the PRO PDF delivered)\\n";
+      lines.push("");
+      lines.push("--------------------------------");
+      lines.push("Delivery Email:");
+      lines.push("");
+      lines.push("(Add the email where you want the PRO PDF delivered)");
+      lines.push("");
+      lines.push("Sent from Decision Funnel intake tool.");
 
+      const body = lines.join("\n");
       return { subject, body };
     }
 
@@ -282,23 +300,21 @@
       function browse(dir){
         if(isFinal) return;
         const opts = FLOW[idx].options;
+
+        const cur = optIdx[idx] || 0;
+        const oi = (dir === "right")
+          ? (cur + 1) % opts.length
+          : (cur - 1 + opts.length) % opts.length;
+
         setOptIdx(arr=>{
           const copy = arr.slice();
-          const cur = copy[idx] || 0;
-          const nxt = dir === "right"
-            ? (cur + 1) % opts.length
-            : (cur - 1 + opts.length) % opts.length;
-          copy[idx] = nxt;
+          copy[idx] = oi;
           return copy;
         });
 
-        // animate text on current slide
         const slideEl = slidesRef.current[idx];
         if(slideEl){
           const optEl = slideEl.querySelector(".option");
-          const oi = (dir === "right")
-            ? (optIdx[idx] + 1) % opts.length
-            : (optIdx[idx] - 1 + opts.length) % opts.length;
           swapOption(optEl, opts[oi], dir);
         }
       }
@@ -323,7 +339,7 @@
         const id = bmcId || genBmcId();
         if(!bmcId) setBmcId(id);
 
-        const {subject, body} = buildEmail(state, id);
+        const {subject, body} = buildEmail(state, id, TOPIC_FROM_GPT);
         const mailto = `mailto:${EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         window.location.href = mailto;
       }
@@ -351,24 +367,19 @@
         const dx = t.clientX - touchRef.current.sx;
         const dy = t.clientY - touchRef.current.sy;
 
-        // Final slide gestures
         if(isFinal){
           if(dy > 60 && Math.abs(dy) > Math.abs(dx)) { sendEmail(); return; }
           if(dy < -60 && Math.abs(dy) > Math.abs(dx)) { prev(); return; }
           return;
         }
 
-        // Up = skip
         if(dy < -60 && Math.abs(dy) > Math.abs(dx)) { skip(); return; }
-        // Down = select
         if(dy > 60 && Math.abs(dy) > Math.abs(dx)) { select(); return; }
-        // Right = browse next
         if(dx > 60) { browse("right"); return; }
-        // Left = browse prev
         if(dx < -60) { browse("left"); return; }
       }
 
-      // Mouse fallback (drag-like)
+      // Mouse fallback
       function onMouseDown(ev){
         touchRef.current.sx = ev.clientX;
         touchRef.current.sy = ev.clientY;
@@ -413,6 +424,10 @@
             e("h1", null, "Send Request"),
 
             e("div", {className:"card"},
+              e("div", {className:"row"},
+                e("div", {className:"label"}, "Topic"),
+                e("div", {className:"value"}, TOPIC_FROM_GPT || "(not provided)")
+              ),
               e("div", {className:"row"},
                 e("div", {className:"label"}, "Email"),
                 e("div", {className:"value"}, EMAIL_TO)
