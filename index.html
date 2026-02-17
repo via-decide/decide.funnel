@@ -235,25 +235,38 @@
       });
     }
 
+    // ✅ FIXED: use real newlines and cleaner layout (no literal "\n")
     function buildEmail(state, bmcId){
       const subject = `Decision Funnel — PRO PDF Request — Ref ${bmcId}`;
-      let body = "";
-      body += "PRO PDF REQUEST\\n";
-      body += "Reference ID: " + bmcId + "\\n";
-      body += "--------------------------\\n";
+
+      const lines = [];
+      lines.push("PRO PDF REQUEST");
+      lines.push(`Reference ID: ${bmcId}`);
+      lines.push("--------------------------------");
+      lines.push("");
 
       FLOW.forEach(step=>{
-        const label = LABELS[step.key] || step.key;
+        const label = LABELS[step.key] || step.key.replace(/_/g," ");
         const val = state[step.key] || "Not selected";
-        body += `${label}: ${val}\\n`;
+        lines.push(`${label}: ${val}`);
       });
 
-      body += "--------------------------\\n";
-      body += "Topic / Links / Notes:\\n\\n";
-      body += "(Add your topic, links, PDF context here)\\n\\n";
-      body += "Delivery Email:\\n\\n";
-      body += "(Add the email where you want the PRO PDF delivered)\\n";
+      lines.push("");
+      lines.push("--------------------------------");
+      lines.push("Topic / Links / Notes:");
+      lines.push("");
+      lines.push("- Topic:");
+      lines.push("- Links (Drive/Notion/PDF):");
+      lines.push("- Key constraints:");
+      lines.push("- Desired outcome:");
+      lines.push("");
+      lines.push("Delivery Email:");
+      lines.push("");
+      lines.push("- (Email to receive the PRO PDF)");
+      lines.push("");
+      lines.push("Sent from Decision Funnel intake tool.");
 
+      const body = lines.join("\n");
       return { subject, body };
     }
 
@@ -282,23 +295,24 @@
       function browse(dir){
         if(isFinal) return;
         const opts = FLOW[idx].options;
+
+        // compute next index deterministically
+        const cur = optIdx[idx] || 0;
+        const oi = (dir === "right")
+          ? (cur + 1) % opts.length
+          : (cur - 1 + opts.length) % opts.length;
+
+        // update state
         setOptIdx(arr=>{
           const copy = arr.slice();
-          const cur = copy[idx] || 0;
-          const nxt = dir === "right"
-            ? (cur + 1) % opts.length
-            : (cur - 1 + opts.length) % opts.length;
-          copy[idx] = nxt;
+          copy[idx] = oi;
           return copy;
         });
 
-        // animate text on current slide
+        // animate text on current slide using computed oi
         const slideEl = slidesRef.current[idx];
         if(slideEl){
           const optEl = slideEl.querySelector(".option");
-          const oi = (dir === "right")
-            ? (optIdx[idx] + 1) % opts.length
-            : (optIdx[idx] - 1 + opts.length) % opts.length;
           swapOption(optEl, opts[oi], dir);
         }
       }
